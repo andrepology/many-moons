@@ -58,27 +58,20 @@ function App() {
           
           {/* 3D Squircle Container */}
           <SquircleContainer fullMoonCount={fullMoonCount}>
-            {/* Moons with dynamic layout */}
+            {/* Moons in circular layout */}
             <group position={[0, -1, 0]}>
-              <MoonGrid count={fullMoonCount} />
+              <MoonGrid count={fullMoonCount} layout="auto" />
             </group>
           </SquircleContainer>
           
           <OrbitControls 
-            enableZoom={true} 
+            enableZoom={false} 
             enablePan={false} 
             minPolarAngle={Math.PI/3}
             maxPolarAngle={Math.PI/1.5}
-            minDistance={15}
-            maxDistance={40}
           />
         </Suspense>
       </Canvas>
-      
-      {/* Instructions overlay */}
-      <div className="absolute bottom-4 left-4 right-4 text-center text-white opacity-80 text-sm">
-        Zoom in/out to change the moon layout
-      </div>
     </div>
   );
 }

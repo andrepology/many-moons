@@ -1,117 +1,125 @@
-import { useMemo, useState, useEffect, useRef } from 'react'
+import { useMemo, useState, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { Moon } from './Moon'
 import { Vector3 } from 'three'
 
 interface MoonGridProps {
   count: number;
-  layout?: 'grid' | 'circular';
+  layout?: 'grid' | 'circular' | 'auto';
 }
 
-export function MoonGrid({ count, layout = 'grid' }: MoonGridProps) {
-  // Get camera from scene
-  const { camera } = useThree()
+export function MoonGrid({ count, layout = 'auto' }: MoonGridProps) {
+  const { camera } = useThree();
+  const [currentLayout, setCurrentLayout] = useState<'grid' | 'circular'>(
+    layout === 'auto' ? 'circular' : layout
+  );
   
-  // Track whether we should use circular or grid layout based on camera z position
-  const [currentLayout, setCurrentLayout] = useState(layout)
-  const [transitionProgress, setTransitionProgress] = useState(1) // 0 to 1
-  const targetPositionsRef = useRef<{ x: number; y: number; z: number }[]>([])
-  const currentPositionsRef = useRef<{ x: number; y: number; z: number }[]>([])
+  // Track previous camera position to detect significant changes
+  const prevCameraZRef = useRef(camera.position.z);
   
-  // Calculate both grid and circular positions
-  const { gridPositions, circularPositions } = useMemo(() => {
-    // Circular layout positions
-    const circular = [];
-    const radius = Math.min(6, 2 + count * 0.25);
-    const angleStep = (2 * Math.PI) / count;
-    
-    for (let i = 0; i < count; i++) {
-      const angle = i * angleStep;
+  // Update layout based on camera position
+  useFrame(() => {
+    if (layout === 'auto') {
+      const currentZ = camera.position.z;
+      const zDiff = Math.abs(currentZ - prevCameraZRef.current);
       
-      if (count === 1) {
-        circular.push({ x: 0, y: 0, z: 0 });
-      } else {
-        circular.push({
-          x: Math.cos(angle) * radius,
-          y: Math.sin(angle) * radius,
+      // If camera has moved significantly in Z direction
+      if (zDiff > 3) {
+        prevCameraZRef.current = currentZ;
+        
+        // Close to objects (zoomed in) - use grid
+        // Far from objects (zoomed out) - use circular
+        const newLayout = currentZ < 15 ? 'grid' : 'circular';
+        
+        if (newLayout !== currentLayout) {
+          setCurrentLayout(newLayout);
+        }
+      }
+    }
+  });
+  
+  // Calculate positions for all moons based on current layout
+  const moonPositions = useMemo(() => {
+    const positions = [];
+    
+    if (currentLayout === 'circular') {
+      // Arrange moons in a circular pattern
+      const radius = Math.min(6, 2 + count * 0.4); // Adjusted radius based on count
+      const angleStep = (2 * Math.PI) / count;
+      
+      for (let i = 0; i < count; i++) {
+        const angle = i * angleStep;
+        
+        // For a single moon, place it in the center
+        if (count === 1) {
+          positions.push({ x: 0, y: 0, z: 0 });
+        } else {
+          positions.push({
+            x: Math.cos(angle) * radius,
+            y: Math.sin(angle) * radius,
+            z: 0
+          });
+        }
+      }
+    } else {
+      // Grid layout
+      const gridSize = Math.ceil(Math.sqrt(count));
+      const spacing = 3; // Reduced spacing for 3D container
+      
+      const totalWidth = (gridSize - 1) * spacing;
+      const totalHeight = (gridSize - 1) * spacing;
+      
+      const startX = -totalWidth / 2;
+      const startY = totalHeight / 2;
+      
+      for (let i = 0; i < count; i++) {
+        const row = Math.floor(i / gridSize);
+        const col = i % gridSize;
+        
+        positions.push({
+          x: startX + col * spacing,
+          y: startY - row * spacing,
           z: 0
         });
       }
     }
     
-    // Grid layout positions
-    const grid = [];
-    const gridSize = Math.ceil(Math.sqrt(count));
-    const spacing = 3;
-    
-    const totalWidth = (gridSize - 1) * spacing;
-    const totalHeight = (gridSize - 1) * spacing;
-    
-    const startX = -totalWidth / 2;
-    const startY = totalHeight / 2;
-    
+    return positions;
+  }, [count, currentLayout]);
+  
+  // Refs to track positions for smooth transitions
+  const positionRefs = useRef<Vector3[]>([]);
+  
+  // Create position refs if needed
+  if (positionRefs.current.length !== count) {
+    positionRefs.current = Array(count)
+      .fill(null)
+      .map((_, i) => new Vector3(
+        moonPositions[i]?.x || 0,
+        moonPositions[i]?.y || 0, 
+        moonPositions[i]?.z || 0
+      ));
+  }
+  
+  // Animate positions
+  useFrame(() => {
     for (let i = 0; i < count; i++) {
-      const row = Math.floor(i / gridSize);
-      const col = i % gridSize;
+      const targetPos = moonPositions[i];
+      const currentPos = positionRefs.current[i];
       
-      grid.push({
-        x: startX + col * spacing,
-        y: startY - row * spacing,
-        z: 0
-      });
-    }
-    
-    return { gridPositions: grid, circularPositions: circular };
-  }, [count]);
-  
-  // Initialize positions
-  useEffect(() => {
-    if (currentLayout === 'grid') {
-      currentPositionsRef.current = [...gridPositions];
-      targetPositionsRef.current = [...gridPositions];
-    } else {
-      currentPositionsRef.current = [...circularPositions];
-      targetPositionsRef.current = [...circularPositions];
-    }
-  }, [count, gridPositions, circularPositions, currentLayout]);
-  
-  // Check camera position and update layout
-  useFrame(({ clock }) => {
-    // Determine layout based on camera z position
-    const cameraZ = camera.position.z;
-    const newLayout = cameraZ > 20 ? 'grid' : 'circular';
-    
-    // If layout needs to change, start transition
-    if (newLayout !== currentLayout && transitionProgress === 1) {
-      setCurrentLayout(newLayout);
-      setTransitionProgress(0);
-      targetPositionsRef.current = newLayout === 'grid' ? gridPositions : circularPositions;
-    }
-    
-    // Animate transition if in progress
-    if (transitionProgress < 1) {
-      const newProgress = Math.min(transitionProgress + 0.02, 1);
-      setTransitionProgress(newProgress);
-      
-      // Update current positions based on transition progress
-      currentPositionsRef.current = currentPositionsRef.current.map((pos, i) => {
-        const target = targetPositionsRef.current[i];
-        return {
-          x: pos.x + (target.x - pos.x) * 0.05,
-          y: pos.y + (target.y - pos.y) * 0.05,
-          z: pos.z + (target.z - pos.z) * 0.05
-        };
-      });
+      if (targetPos && currentPos) {
+        // Smooth transition between positions
+        currentPos.x += (targetPos.x - currentPos.x) * 0.05;
+        currentPos.y += (targetPos.y - currentPos.y) * 0.05;
+        currentPos.z += (targetPos.z - currentPos.z) * 0.05;
+      }
     }
   });
   
   return (
     <group>
-      {currentPositionsRef.current.map((position, index) => (
-        <group 
-          key={index} 
-          position={[position.x, position.y, position.z]}
-        >
+      {positionRefs.current.map((position, index) => (
+        <group key={index} position={position}>
           <Moon index={index} />
         </group>
       ))}
